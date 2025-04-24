@@ -1,5 +1,6 @@
 model_family: phi
-model_path: /home/wxy/wxy_workspace/LLM_unlearn/tofu-main/tofu_result/locuslab_tofu_ft_phi/models--locuslab--tofu_ft_phi-1.5/snapshots/c34da369771ff53cf722344bc912fd9913f67da7
+model_path: locuslab/tofu_ft_phi-1.5
+# model_path: /home/wxy/wxy_workspace/LLM_unlearn/tofu-main/tofu_result/locuslab_tofu_ft_phi/models--locuslab--tofu_ft_phi-1.5/snapshots/c34da369771ff53cf722344bc912fd9913f67da7
 # model_path: /home/wxy/wxy_workspace/LLM_unlearn/tofu-main/result/grad_ascent_1e-05_forget01_5
 LoRA:
   r: 0

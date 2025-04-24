@@ -27,12 +27,12 @@ from src.utils import get_model_identifiers_from_yaml, get_model_utility, get_fo
 )
 def main(cfg):
     root_dir = "/home/wxy/wxy_workspace/LLM_unlearn/tofu-main"
-    # TODO:
-    task = "forget05"
+    # TODO:  换成读配置文件而不是写死（跑通再改），注意下面的cfg.model_path也是写死的
+    task = "forget01"
     method_name = "edit_max"  # grad_ascent, grad_diff, idk, dpo
     retain_file_name = "ft_epoch5_lr2e-05_phi_retain" + str(100 - int(task[-2:])).zfill(2) + "_wd0.01"
     unlearn_dir_name = "tofu_result"
-    unlearn_file_name = "edit_max_1e-05_forget05_1_wd0.01_bs40"  # "locuslab_tofu_ft_phi/forget05_perturbed"
+    unlearn_file_name = "edit_max_1e-05_forget01_1_wd0.01_bs40"  # "locuslab_tofu_ft_phi/forget05_perturbed"
 
     cfg.split = f"{task}_perturbed"
 

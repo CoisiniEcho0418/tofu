@@ -3,7 +3,7 @@ import os
 
 sys.path.append("/home/wxy/wxy_workspace/LLM_unlearn/tofu-main")
 sys.path.append("/home/wxy/wxy_workspace/LLM_unlearn/tofu-main/src")
-os.environ["CUDA_VISIBLE_DEVICES"] = "1"
+os.environ["CUDA_VISIBLE_DEVICES"] = "0"
 import torch
 from transformers import AutoTokenizer, AutoModelForCausalLM, AutoConfig, set_seed
 import hydra
@@ -86,14 +86,14 @@ def chunks(arr, n):
     config_name="forget_phi_tofu",
 )
 def main(cfg):
-    # TODO:
+    # TODO: 下面代码最好改成读取配置文件的方式，先放着，跑通再改
     cfg.lr = 1e-5
     cfg.weight_decay = 0.01
     cfg.batch_size = 40
     # cfg.gradient_accumulation_steps = 8
     cfg.num_epochs = 1
     cfg.data_name = "tofu"  # tofu, wmdp, tofu_idk
-    cfg.split = "forget05" if "tofu" in cfg.data_name else None  #
+    cfg.split = "forget01" if "tofu" in cfg.data_name else None  #
     retain_split = "retain" + str(100 - int(cfg.split[-2:])).zfill(2) if "tofu" in cfg.data_name else None
     cfg.forget_loss = "edit_max"  # ["grad_ascent", "grad_diff", "idk", "npo", "dpo", "ME", "FLAT-TV", "RMU"]
     cfg.save_dir = f"{ROOT_DIR}/{cfg.data_name}_result/{cfg.forget_loss}_{cfg.lr}_{cfg.split}_{cfg.num_epochs}_wd{cfg.weight_decay}_bs{cfg.batch_size}"

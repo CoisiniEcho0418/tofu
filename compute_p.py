@@ -157,8 +157,9 @@ def get_project(model, tok, layer, hparams, retain_ds):
 
 def compute_p(
     model_name="phi",  # tokenizer path
-    model_path=f"{ROOT_DIR}/tofu_result/locuslab_tofu_ft_phi/models--locuslab--tofu_ft_phi-1.5/snapshots/c34da369771ff53cf722344bc912fd9913f67da7",  # pretrained model path or id
-    split="retain99",
+    # model_path=f"{ROOT_DIR}/tofu_result/locuslab_tofu_ft_phi/models--locuslab--tofu_ft_phi-1.5/snapshots/c34da369771ff53cf722344bc912fd9913f67da7",  # pretrained model path or id
+    model_path=f"locuslab/tofu_ft_phi-1.5",  # pretrained model path or id
+	split="retain99",
     data_name="tofu",
     data_path="locuslab/TOFU",
 ):

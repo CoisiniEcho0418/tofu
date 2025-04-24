@@ -1,5 +1,5 @@
-from data_module import TextDatasetQA, custom_data_collator
-from dataloader import CustomTrainer
+from src.data_module import TextDatasetQA, custom_data_collator
+from src.dataloader import CustomTrainer
 import torch
 from transformers import AutoTokenizer, AutoModelForCausalLM, AutoConfig, set_seed
 
@@ -9,7 +9,7 @@ import os
 from peft import LoraConfig, get_peft_model
 from pathlib import Path
 from omegaconf import OmegaConf
-from utils import get_model_identifiers_from_yaml
+from src.utils import get_model_identifiers_from_yaml
 
 
 def find_all_linear_names(model):
