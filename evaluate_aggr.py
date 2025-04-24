@@ -23,14 +23,18 @@ from src.utils import get_model_identifiers_from_yaml, get_model_utility, get_fo
 @hydra.main(
     version_base=None,
     config_path="/home/wxy/wxy_workspace/LLM_unlearn/tofu-main/config/eval",
-    config_name="eval_everything_phi",
+    config_name="eval_everything_llama",
 )
 def main(cfg):
     root_dir = "/home/wxy/wxy_workspace/LLM_unlearn/tofu-main"
     # TODO:  换成读配置文件而不是写死（跑通再改），注意下面的cfg.model_path也是写死的
     task = "forget01"
-    method_name = "edit_max"  # grad_ascent, grad_diff, idk, dpo
-    retain_file_name = "ft_epoch5_lr2e-05_phi_retain" + str(100 - int(task[-2:])).zfill(2) + "_wd0.01"
+    method_name = "grad_ascent"  # edit_max, grad_ascent, grad_diff, idk, dpo
+    if cfg.model_family == "phi":
+        retain_file_name = "ft_epoch5_lr2e-05_phi_retain" + str(100 - int(task[-2:])).zfill(2) + "_wd0.01"
+    elif cfg.model_family == "llama2-7b":
+        retain_file_name = "ft_epoch5_lr1e-05_llama2-7b_retain" + str(100 - int(task[-2:])).zfill(2) + "_wd0.01"
+    # retain_file_name = "ft_epoch5_lr2e-05_phi_retain" + str(100 - int(task[-2:])).zfill(2) + "_wd0.01"
     unlearn_dir_name = "tofu_result"
     unlearn_file_name = "edit_max_1e-05_forget01_1_wd0.01_bs40"  # "locuslab_tofu_ft_phi/forget05_perturbed"
 
@@ -47,9 +51,10 @@ def main(cfg):
         == len(cfg.perturbed_answer_key)
     ), "data_path, split, eval_task, question_key, and answer_key must be the same length"
 
-    cfg.model_path = f"{root_dir}/{unlearn_dir_name}/{unlearn_file_name}"
+	# TODO: 给save_dir加llama的if判断（但是目前缺少路径信息）
+    cfg.model_path = f"{root_dir}/{unlearn_dir_name}/${cfg.model_family}/{unlearn_file_name}"
     cfg.save_dir = (
-        (f"{root_dir}/{unlearn_dir_name}/{unlearn_file_name}/eval_results/ds_size{cfg.ds_size}")
+        (f"{root_dir}/{unlearn_dir_name}/${cfg.model_family}/{unlearn_file_name}/eval_results/ds_size{cfg.ds_size}")
         if "locuslab_tofu_ft_phi" not in cfg.model_path
         else f"{root_dir}/{unlearn_dir_name}/locuslab_tofu_ft_phi/{cfg.split}/eval_results/ds_size{cfg.ds_size}"
     )
@@ -157,7 +162,7 @@ def main(cfg):
     # =============================== aggregate ===============================
 
     retain_result = f"{root_dir}/data/{retain_file_name}/eval_results/ds_size300/eval_log_aggregated.json"
-    aggr_save_file = f"{root_dir}/{unlearn_dir_name}/{unlearn_file_name}/aggr_result.csv"
+    aggr_save_file = f"{root_dir}/{unlearn_dir_name}/${cfg.model_family}/{unlearn_file_name}/aggr_result.csv"
 
     retain_result = json.load(open(retain_result))
 

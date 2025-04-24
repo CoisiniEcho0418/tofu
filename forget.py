@@ -3,7 +3,7 @@ import os
 
 sys.path.append("/home/wxy/wxy_workspace/LLM_unlearn/tofu-main")
 sys.path.append("/home/wxy/wxy_workspace/LLM_unlearn/tofu-main/src")
-os.environ["CUDA_VISIBLE_DEVICES"] = "1"
+os.environ["CUDA_VISIBLE_DEVICES"] = "0"
 import torch
 from transformers import AutoTokenizer, AutoModelForCausalLM, AutoConfig, set_seed
 import hydra
@@ -171,10 +171,21 @@ def main(cfg):
                 trust_remote_code=True,
                 device_map=device_map,
             )
-
+            
+	# # 这样貌似有点问题
+    # else:
+    #     print("Error! Model not found in the path")
+    #     return
+    
     else:
-        print("Error! Model not found in the path")
-        return
+        print("Loading after merge and unload")
+        model = AutoModelForCausalLM.from_pretrained(model_id, use_flash_attention_2=model_cfg["flash_attention2"]=="true", torch_dtype=torch.bfloat16, device_map=device_map)
+        #now use the checkpoint to add the LoRA modules
+        model = PeftModel.from_pretrained(model, model_id = cfg.model_path)
+        #save this as a standard model so that we can again do PEFT style finetuneing from scratch
+        model = model.merge_and_unload()
+        #save the model for next time
+        model.save_pretrained(cfg.model_path)
 
     # Hot fix for https://discuss.huggingface.co/t/help-with-llama-2-finetuning-setup/50035
     model.generation_config.do_sample = True
