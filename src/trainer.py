@@ -15,6 +15,8 @@ import numpy as np
 from scipy.stats import ks_2samp, hmean
 import csv
 from transformers.integrations.deepspeed import deepspeed_init, deepspeed_load_checkpoint, is_deepspeed_available
+from transformers import LlamaForCausalLM, PhiForCausalLM
+from peft import PeftModelForCausalLM, LoraModel
 
 
 def get_me_loss(logits, labels):
@@ -191,17 +193,32 @@ class CustomTrainerForgetting(Trainer):
         super(CustomTrainerForgetting, self).__init__(*args, **kwargs)
 
         if self.loss_type == "RMU":
-            module_str = "{model_name}.model.layers[{layer_id}]"
             layer_id = 7
             steering_coeff_list = 20
 
-            self.frozen_module = eval(module_str.format(model_name="self.oracle_model", layer_id=layer_id))
-            self.updated_module = eval(module_str.format(model_name="self.model", layer_id=layer_id))
+            self.frozen_module = self._get_model_layer(self.oracle_model, layer_id)
+            self.updated_module = self._get_model_layer(self.model, layer_id)
 
             random_vector = torch.rand(
                 1, 1, self.model.config.hidden_size, dtype=self.model.dtype, device=self.model.device
             )
             self.control_vec = random_vector / torch.norm(random_vector) * steering_coeff_list
+
+    def _get_model_layer(self, model, layer_id):
+        """
+        通用方法：根据模型类型和层ID获取指定的模型层（适用Peft-llama,llama,Phi）
+        """
+        # 如果模型是 PeftModelForCausalLM 类型
+        if isinstance(model, PeftModelForCausalLM):
+            base_model = model.base_model  # 访问下一层：Lora 加速模型
+            if isinstance(base_model, LoraModel):  
+                base_model = base_model.model  # 继续访问到 Llama 模型
+            if isinstance(base_model, LlamaForCausalLM):  
+                return base_model.model.layers[layer_id]
+        if isinstance(model, LlamaForCausalLM) or isinstance(model, PhiForCausalLM):
+            return model.model.layers[layer_id]
+        else:
+            raise ValueError(f"Unsupported model type: {type(model)}")
 
     def compute_loss(self, model, inputs, return_outputs=False, **kwargs):
         if self.loss_type == "grad_ascent":
@@ -355,7 +372,7 @@ class CustomTrainerForgetting(Trainer):
             loss = get_contrastive_loss(loss_sum_unlearn, loss_sum_good, cl_div)
 
         elif self.loss_type == "RMU":
-            forget_inputs, retain_inputs = inputs
+            forget_inputs, retain_inputs = inputs  
             input_ids, labels, attention_mask = forget_inputs
 
             # Unlearning loss
@@ -385,7 +402,7 @@ class CustomTrainerForgetting(Trainer):
             )
 
             retain_loss = torch.nn.functional.mse_loss(updated_retain_activations, frozen_retain_activations)
-            retain_loss *= 100
+            retain_loss *= 100  # alpha
 
             # Update model
             loss = unlearn_loss.to(self.model.device) + retain_loss.to(self.model.device)

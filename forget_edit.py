@@ -4,6 +4,8 @@ import os
 sys.path.append("/home/wxy/wxy_workspace/LLM_unlearn/tofu-main")
 sys.path.append("/home/wxy/wxy_workspace/LLM_unlearn/tofu-main/src")
 os.environ["CUDA_VISIBLE_DEVICES"] = "0"
+os.environ['HF_ENDPOINT'] = 'https://hf-mirror.com'
+
 import torch
 from transformers import AutoTokenizer, AutoModelForCausalLM, AutoConfig, set_seed
 import hydra
@@ -15,7 +17,7 @@ from omegaconf import OmegaConf
 from time import time
 import json
 
-from src.data_module import TextDatasetQA, TextDatasetQIDK
+from src.data_module import TextDatasetQA, TextDatasetQIDK, TextDatasetWMDP
 from src.dataloader import custom_data_collator_forget, custom_data_collator_forget_dpo
 from src.trainer import CustomTrainerForgetting
 from src.AlphaEdit_hparams import AlphaEditHyperParams
@@ -24,7 +26,7 @@ from src.AlphaEdit_main import apply_AlphaEdit_to_model
 dataset_class_mapping = {
     "tofu": TextDatasetQA,
     "tofu_idk": TextDatasetQIDK,
-    "wmdp": None,
+    "wmdp": TextDatasetWMDP,
 }
 ROOT_DIR = "/home/wxy/wxy_workspace/LLM_unlearn/tofu-main"
 
@@ -83,33 +85,35 @@ def chunks(arr, n):
 @hydra.main(
     version_base=None,
     config_path=f"{ROOT_DIR}/config/forget",
-    config_name="forget_llama_tofu",
+    config_name="forget_phi_wmdp",
 )
 def main(cfg):
-    # TODO: 下面代码最好改成读取配置文件的方式，先放着，跑通再改
-    cfg.lr = 1e-5
-    cfg.weight_decay = 0.01
-    cfg.batch_size = 40
-    # cfg.gradient_accumulation_steps = 8
+    # TODO:
+    cfg.batch_size = 200
     cfg.num_epochs = 1
-    cfg.data_name = "tofu"  # tofu, wmdp, tofu_idk
-    cfg.split = "forget01" if "tofu" in cfg.data_name else None  #
+    num_samples = 400
+    cfg.split = "forget05" if "tofu" in cfg.data_name else cfg.split  #
     retain_split = "retain" + str(100 - int(cfg.split[-2:])).zfill(2) if "tofu" in cfg.data_name else None
-    cfg.forget_loss = "grad_ascent"  # ["edit_max", "grad_ascent", "grad_diff", "idk", "npo", "dpo", "ME", "FLAT-TV", "RMU"]
-    cfg.save_dir = f"{ROOT_DIR}/{cfg.data_name}_result/${cfg.model_family}/{cfg.forget_loss}_{cfg.lr}_{cfg.split}_{cfg.num_epochs}_wd{cfg.weight_decay}_bs{cfg.batch_size}"
-
+    cfg.forget_loss = "edit_u"  # ["edit_t", "edit_u", "edit_max", "edit_k0"(memit)]
+    
+    if cfg.forget_loss == "edit_t":
+        cfg.data_name = "tofu_idk"
+    
+    if cfg.forget_loss == "edit_t" and cfg.data_name == "wmdp":
+        print("edit_t is not supported for wmdp")
+        return
+    
+    # cfg.save_dir = f"{ROOT_DIR}/{cfg.data_name}_result/{cfg.model_family}/{cfg.forget_loss}_{cfg.lr}_{cfg.split}_{cfg.num_epochs}_wd{cfg.weight_decay}_bs{cfg.batch_size}"
     params_path = f"{ROOT_DIR}/config/edit/{cfg.model_family}.json"
     hparams = AlphaEditHyperParams.from_json(params_path)
     print(f"Executing with parameters {hparams}")
 
     layers_name = "".join(str(i) for i in hparams.layers)
     null_space_proj_path = f"{ROOT_DIR}/data/stats/{cfg.model_family}/{cfg.data_name[:4]}_{retain_split}_{layers_name}_null_space_project.pt"
-    cache_k0_path = (
-        f"{ROOT_DIR}/data/stats/{cfg.model_family}/{cfg.data_name[:4]}_{retain_split}_{layers_name}_cache_k0.pt"
-    )
-    cache_template = (
-        f"{ROOT_DIR}/data/kvs/{cfg.model_family}/{cfg.data_name}_{cfg.split}_layer_{{}}_clamp_{{}}_case_{{}}.npz"
-    )
+    cache_template = None
+    # (
+    #     f"{ROOT_DIR}/data/kvs/{cfg.model_family}/{cfg.data_name}_{cfg.split}_layer_{{}}_clamp_{{}}_case_{{}}.npz"
+    # )
 
     max_length = 512  # tokenizer.model_max_length
     num_edits = cfg.batch_size
@@ -140,9 +144,11 @@ def main(cfg):
                 exit()
 
         Path(cfg.save_dir).mkdir(parents=True, exist_ok=True)
-
+        hparams_dict = hparams.to_dict() if hasattr(hparams, "to_dict") else vars(hparams)
+        OmegaConf.set_struct(cfg, False)
+        combined_config = OmegaConf.merge(cfg, OmegaConf.create(hparams_dict))
         with open(f"{cfg.save_dir}/config.yaml", "w") as file:
-            OmegaConf.save(cfg, file)
+            OmegaConf.save(combined_config, file)
 
     tokenizer = AutoTokenizer.from_pretrained(model_id)
     tokenizer.pad_token = tokenizer.eos_token
@@ -156,6 +162,7 @@ def main(cfg):
         split=cfg.split,
         question_key="question",
         answer_key="answer",
+        num_samples=num_samples
     )
 
     # =============================== load model ===============================
@@ -181,17 +188,17 @@ def main(cfg):
     # now we have a HuggingFace model
     if model_cfg["gradient_checkpointing"] == "true":
         model.gradient_checkpointing_enable()
-    config = LoraConfig(
-        r=cfg.LoRA.r,
-        lora_alpha=cfg.LoRA.alpha,
-        target_modules=find_all_linear_names(model),
-        lora_dropout=cfg.LoRA.dropout,
-        bias="none",
-        task_type="CAUSAL_LM",
-    )
-    if cfg.LoRA.r != 0:
-        model = get_peft_model(model, config)
-        print_trainable_parameters(model)
+    # config = LoraConfig(
+    #     r=cfg.LoRA.r,
+    #     lora_alpha=cfg.LoRA.alpha,
+    #     target_modules=find_all_linear_names(model),
+    #     lora_dropout=cfg.LoRA.dropout,
+    #     bias="none",
+    #     task_type="CAUSAL_LM",
+    # )
+    # if cfg.LoRA.r != 0:
+    #     model = get_peft_model(model, config)
+    #     print_trainable_parameters(model)
 
     model.config.use_cache = False  # silence the warnings. Please re-enable for inference
 
@@ -205,27 +212,26 @@ def main(cfg):
         return
 
     cache_k0 = None
-    if "k0" in cfg.forget_loss:
-        if os.path.exists(cache_k0_path):
-            print("Loading cached K0 from", cache_k0_path)
-            cache_k0 = torch.load(cache_k0_path).cpu()
-        else:
-            print("Cached K0 not found.")
-            return
+    # if "k0" in cfg.forget_loss:
+    #     cache_k0_path = (
+    #         f"{ROOT_DIR}/data/stats/{cfg.model_family}/{cfg.data_name[:4]}_{retain_split}_{layers_name}_cache_k0.pt"
+    #     )
+    #     if os.path.exists(cache_k0_path):
+    #         print("Loading cached K0 from", cache_k0_path)
+    #         cache_k0 = torch.load(cache_k0_path).cpu()
+    #     else:
+    #         print("Cached K0 not found.")
+    #         return
     cnt = 0
 
     # case_result_template = str(cfg.save_dir + "/{}_edits-case_{}.json")
     for data_chunks in chunks(torch_format_dataset, num_edits):  # list of data
         print(f"========================================{cnt+1}_edit==================================")
         # Compute weight changes + record weights that changed
-        args_conserve_memory = dict()
-        etc_args = dict(cache_template=cache_template)
-        seq_args = dict(cache_c=cache_c, cache_k=cache_k0)
-        nc_args = dict(P=P)
         edited_model, cache_c = apply_AlphaEdit_to_model(
-            model,
-            tokenizer,
-            [
+            model=model,
+            tok=tokenizer,
+            requests=[
                 {
                     "case_id": data[3],
                     "input_ids": data[0].to("cuda"),
@@ -234,12 +240,13 @@ def main(cfg):
                 }
                 for data in data_chunks
             ],
-            hparams,
-            cfg,
-            **args_conserve_memory,
-            **etc_args,
-            **seq_args,
-            **nc_args,
+            hparams=hparams,
+            cfg=cfg,
+            cache_template=cache_template,
+            cache_c=cache_c, 
+            cache_k=cache_k0,
+            P=P,
+            use_cache=False# if len(torch_format_dataset)/num_edits <= 1 else True
         )
         cnt += 1
     # =============================== save result ===============================
@@ -247,6 +254,10 @@ def main(cfg):
     if cfg.save_model:
         model.save_pretrained(cfg.save_dir)
         tokenizer.save_pretrained(cfg.save_dir)
+        config.save_pretrained(cfg.save_dir)
+        print("######################")
+        print("Model Saving to: ", cfg.save_dir)
+        print("######################")
 
     # delete all "global_step*" files in the save_dir/checkpoint-*/ directories
     if local_rank == 0:

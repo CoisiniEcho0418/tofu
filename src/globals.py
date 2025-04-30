@@ -4,7 +4,7 @@ import yaml
 
 # with open("/home/wxy/wxy_workspace/LLM_unlearn/AlphaEdit-main/globals.yml", "r") as stream:
 #     data = yaml.safe_load(stream)
-with open("/home/wxy/wxy_workspace/LLM_unlearn/tofu/config/globals.yml", "r") as stream:
+with open("/home/wxy/wxy_workspace/LLM_unlearn/tofu-main/config/globals.yml", "r") as stream:
     data = yaml.safe_load(stream)
 
 (RESULTS_DIR, DATA_DIR, STATS_DIR, HPARAMS_DIR, KV_DIR) = (

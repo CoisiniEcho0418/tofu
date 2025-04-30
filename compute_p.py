@@ -1,13 +1,16 @@
 import os
 import sys
+os.environ['HF_ENDPOINT'] = 'https://hf-mirror.com'
+os.environ["CUDA_VISIBLE_DEVICES"] = "0"
 
 sys.path.append("/home/wxy/wxy_workspace/LLM_unlearn/tofu-main")
 sys.path.append("/home/wxy/wxy_workspace/LLM_unlearn/tofu-main/src")
-os.environ["CUDA_VISIBLE_DEVICES"] = "0"
 
+import yaml
 from time import time
 import numpy as np
 import torch
+import hydra
 from torch.utils.data import Dataset
 from transformers import AutoTokenizer, AutoModelForCausalLM, AutoConfig, set_seed
 from pathlib import Path
@@ -15,12 +18,13 @@ from tqdm import tqdm
 
 from src.nethook import Trace, set_requires_grad, get_parameter
 from src.AlphaEdit_hparams import AlphaEditHyperParams
-from src.data_module import TextDatasetQA, custom_data_collator_with_indices
+from src.data_module import TextDatasetQA, custom_data_collator_with_indices, TextDatasetWiki
 from src.runningstats import CombinedStat, Mean, NormMean, SecondMoment
 
 model_dict = {
     "phi": "microsoft/phi-1_5",
-    "llama2-7b": "NousResearch/Llama-2-7b-chat-hf"
+    "llama2-7b": "NousResearch/Llama-2-7b-chat-hf",
+    "zephyr-7b": "HuggingFaceH4/zephyr-7b-beta"
 }
 STATS_DIR = "/home/wxy/wxy_workspace/LLM_unlearn/tofu-main/data/stats"
 ROOT_DIR = "/home/wxy/wxy_workspace/LLM_unlearn/tofu-main"
@@ -190,17 +194,24 @@ def compute_p(
 
     # =============================== load retain data ===============================
     max_length = 512  # tokenizer.model_max_length
-
-    retain_ds = TextDatasetQA(
-        data_path,
-        tokenizer=tokenizer,
-        model_family=model_name,
-        max_length=max_length,
-        split=split,
-        question_key="question",
-        answer_key="answer",
-    )  # [input_ids, label, attention_mask, indices]
-
+    if data_name == "tofu":
+        retain_ds = TextDatasetQA(
+            data_path,
+            tokenizer=tokenizer,
+            model_family=model_name,
+            max_length=max_length,
+            split=split,
+            question_key="question",
+            answer_key="answer",
+        )  # [input_ids, label, attention_mask, indices]
+    elif data_name == "wmdp":
+        retain_ds = TextDatasetWiki(
+            data_path,
+            tokenizer=tokenizer,
+            model_family=model_name,
+            max_length=max_length,
+            split=split,
+        )
     # ===============================  ===============================
     # Iterate through dataset
     W_out = get_parameter(
@@ -212,15 +223,39 @@ def compute_p(
     layers_name = "".join(str(i) for i in hparams.layers)
     # 计算每层的投影矩阵
     proj_path = f"{STATS_DIR}/{model_name}/{data_name}_{split}_{layers_name}_null_space_project.pt"
-    cache_path = f"{STATS_DIR}/{model_name}/{data_name}_{split}_{layers_name}_cache_k0.pt"
-    if os.path.exists(proj_path) and os.path.exists(cache_path):
+    # cache_path = f"{STATS_DIR}/{model_name}/{data_name}_{split}_{layers_name}_cache_k0.pt"
+    if os.path.exists(proj_path):
         return
     else:
         for i, layer in enumerate(hparams.layers):
             P[i, :, :], cache_K[i, :, :] = get_project(model, tokenizer, layer, hparams, retain_ds)
+        
+        proj_path_obj = Path(proj_path)
+        proj_path_obj.parent.mkdir(parents=True, exist_ok=True)
         torch.save(P, proj_path)
-        torch.save(cache_K, cache_path)
+        print(f"projection matrix saved to {proj_path}")
+        # torch.save(cache_K, cache_path)
+
+def read_yaml_file(file_path):
+    """
+    读取 YAML 文件并将其转换为字典格式。
+
+    :param file_path: YAML 文件的路径
+    :return: 包含 YAML 数据的字典
+    """
+    with open(file_path, 'r', encoding='utf-8') as file:
+        try:
+            # 使用 yaml.safe_load 安全加载 YAML 文件内容
+            data = yaml.safe_load(file)
+            return data
+        except yaml.YAMLError as e:
+            print(f"读取 YAML 文件时出错: {e}")
+            return None
 
 
 if __name__ == "__main__":
-    compute_p()
+    config_path = f"{ROOT_DIR}/config/forget/forget_zephyr_wmdp.yaml"
+    args = read_yaml_file(config_path)
+
+    print(args["model_family"], args["model_path"], args["split"])
+    compute_p(args["model_family"], args["model_path"], args["split"], args["data_name"], args["data_path"])

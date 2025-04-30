@@ -1,6 +1,6 @@
 import torch
 from torch import nn
-from torch.utils.data import Dataset
+from torch.utils.data import Dataset, RandomSampler
 from torch.nn.utils.rnn import pad_sequence
 import datasets
 import json
@@ -49,6 +49,15 @@ class TextForgetDatasetQA(Dataset):
         self.retain_data = datasets.load_dataset(data_path, retain_split)["train"]
         self.model_configs = get_model_identifiers_from_yaml(model_family)
         self.loss_type = loss_type
+        
+		# TODO:
+        # if self.loss_type == "RMU":
+        #     # load retain
+        #     raw_data = datasets.load_dataset("wikitext", "wikitext-2-raw-v1", split="test")
+        #     retain_data = []
+        #     for x in raw_data:
+        #         # if len(x["text"]) > self.min_length:
+        #         retain_data.append(str(x["text"]))
 
         if self.loss_type == "idk":
             self.split1, self.split2 = "idk", "retain"
@@ -151,21 +160,30 @@ class WmdpForgetDatasetQA(Dataset):
         # self.forget_data = datasets.load_dataset(data_path, split)["train"]
         forget_data = []
         if split is not None:
-            for line in open(f"/home/wxy/wxy_workspace/LLM_unlearn/wmdp-main/data/wmdp-corpora/{split}.jsonl", "r"):
-                raw_text = json.loads(line)["text"] if "bio-forget-corpus" in split else line
+            for line in open(f"{data_path}/{split}.jsonl", "r"):
+                if "sampled-dataset" in split or "bio-forget-corpus" in split:
+                    raw_text = json.loads(line)["text"]
+                else:
+                    raw_text = line
                 forget_data.append(str(raw_text))
         else:
             for line in open(
-                f"/home/wxy/wxy_workspace/LLM_unlearn/wmdp-main/data/wmdp-corpora/bio-forget-corpus.jsonl", "r"
+                f"{data_path}/bio-forget-corpus.jsonl", "r"
             ):
                 raw_text = json.loads(line)["text"]
                 if len(raw_text) > self.min_length:
                     forget_data.append(str(raw_text))
             for line in open(
-                f"/home/wxy/wxy_workspace/LLM_unlearn/wmdp-main/data/wmdp-corpora/cyber-forget-corpus.jsonl", "r"
+                f"{data_path}/cyber-forget-corpus.jsonl", "r"
             ):
                 if len(line) > self.min_length:
                     forget_data.append(str(line))
+
+		# # 随机抽样 3000 到 4000 条数据
+        # num_samples = torch.randint(3000, 4001, (1,)).item()
+        # sampler = RandomSampler(forget_data, num_samples=num_samples, replacement=False)
+        # self.forget_data = [forget_data[i] for i in sampler]
+        # print(f"forget data size: {len(self.forget_data)}")	
         self.forget_data = forget_data
 
         # load retain
@@ -175,6 +193,7 @@ class WmdpForgetDatasetQA(Dataset):
             if len(x["text"]) > self.min_length:
                 retain_data.append(str(x["text"]))
         self.retain_data = retain_data
+        print(f"retain data size: {len(self.retain_data)}")
 
         if self.loss_type == "idk":
             self.split1, self.split2 = "idk", "retain"
@@ -215,7 +234,9 @@ class WmdpForgetDatasetQA(Dataset):
             )
             pad_length = self.max_length - len(encoded.input_ids)
             pad_input_ids = encoded["input_ids"] + [self.tokenizer.eos_token_id] * pad_length
-            pad_attention_mask = encoded["attention_mask"] + [0] * pad_length
+            # pad_attention_mask = encoded["attention_mask"] + [0] * pad_length
+            # padding_side = left (左填充)
+            pad_attention_mask = [0] * pad_length + encoded["attention_mask"] 
             if len(encoded.input_ids) == self.max_length:
                 label = encoded.input_ids
             else:
@@ -226,97 +247,6 @@ class WmdpForgetDatasetQA(Dataset):
             rets.append(converted_data)
         return rets
 
-
-class WmdpForgetDatasetDPOQA(Dataset):
-    def __init__(
-        self,
-        data_path,
-        tokenizer,
-        model_family,
-        max_length=512,
-        split="forget10",
-    ):
-        super(TextForgetDatasetDPOQA, self).__init__()
-        self.tokenizer = tokenizer
-        self.max_length = max_length
-
-        # load forget
-        # self.forget_data = datasets.load_dataset(data_path, split)["train"]
-        forget_data = []
-        if split is not None:
-            if "bio" in split:
-                split = "bio-forget-corpus"
-            elif "cyber" in split:
-                split = "cyber-forget-corpus"
-            for line in open(f"/home/wxy/wxy_workspace/LLM_unlearn/wmdp-main/data/wmdp-corpora/{split}.jsonl", "r"):
-                raw_text = json.loads(line)["text"] if "bio-forget-corpus" in split else line
-                forget_data.append(str(raw_text))
-        else:
-            for line in open(
-                f"/home/wxy/wxy_workspace/LLM_unlearn/wmdp-main/data/wmdp-corpora/bio-forget-corpus.jsonl", "r"
-            ):
-                raw_text = json.loads(line)["text"]
-                if len(raw_text) > self.min_length:
-                    forget_data.append(str(raw_text))
-            for line in open(
-                f"/home/wxy/wxy_workspace/LLM_unlearn/wmdp-main/data/wmdp-corpora/cyber-forget-corpus.jsonl", "r"
-            ):
-                if len(line) > self.min_length:
-                    forget_data.append(str(line))
-        self.forget_data = forget_data
-
-        # load retain
-        raw_data = datasets.load_dataset("wikitext", "wikitext-2-raw-v1", split="test")
-        retain_data = []
-        for x in raw_data:
-            if len(x["text"]) > self.min_length:
-                retain_data.append(str(x["text"]))
-        self.retain_data = retain_data
-
-        # load idk
-        self.idontknowfile = "/home/wxy/wxy_workspace/LLM_unlearn/tofu-main/data/idontknow.jsonl"
-        self.idk = open(self.idontknowfile, "r").readlines()
-
-        self.model_configs = get_model_identifiers_from_yaml(model_family)
-
-    def __len__(self):
-        return len(self.forget_data)
-
-    def __getitem__(self, idx):
-        rets = []
-
-        for data_type in ["idk", "forget", "retain"]:
-            data = self.forget_data if data_type != "retain" else self.retain_data
-            idx = (
-                idx
-                if data_type != "retain"
-                else (idx + torch.randint(0, len(self.retain_data), (1,)).item()) % len(self.retain_data)
-            )
-            full_text = data[idx]
-
-            if data_type == "idk":
-                # get a random position from idk
-                rand_pos = torch.randint(0, len(self.idk), (1,)).item()
-                full_text = self.idk[rand_pos].strip()
-
-            encoded = self.tokenizer(
-                full_text,
-                add_special_tokens=True,
-                max_length=self.max_length,
-                truncation=True,
-            )
-            pad_length = self.max_length - len(encoded.input_ids)
-            pad_input_ids = encoded["input_ids"] + [self.tokenizer.eos_token_id] * pad_length
-            pad_attention_mask = encoded["attention_mask"] + [0] * pad_length
-            if len(encoded.input_ids) == self.max_length:
-                label = encoded.input_ids
-            else:
-                label = encoded["input_ids"] + [self.tokenizer.eos_token_id] + [-100] * (pad_length - 1)
-
-            converted_data = [torch.tensor(pad_input_ids), torch.tensor(label), torch.tensor(pad_attention_mask)]
-
-            rets.append(converted_data)
-        return rets
 
 
 class TextDatasetQA(Dataset):
@@ -329,6 +259,7 @@ class TextDatasetQA(Dataset):
         split=None,
         question_key="question",
         answer_key="answer",
+        **kargs,
     ):
         super(TextDatasetQA, self).__init__()
         self.tokenizer = tokenizer
@@ -371,6 +302,149 @@ class TextDatasetQA(Dataset):
             torch.tensor(indices),
         )
 
+class TextDatasetWiki(Dataset):
+    def __init__(
+        self,
+        data_path,
+        tokenizer,
+        model_family,
+        max_length=512,
+        min_length=50,
+        split=None,
+        question_key=None,
+        answer_key=None,
+        sample_num=5000
+    ):
+        super(TextDatasetWiki, self).__init__()
+        
+        raw_data = datasets.load_dataset("wikitext", "wikitext-2-raw-v1", split="test")
+        retain_data = []
+        for x in raw_data:
+            if len(x["text"]) > min_length:
+                retain_data.append(str(x["text"]))
+        self.data = retain_data
+        print(f"original retain data size: {len(self.data)}")
+        # sample
+        if len(self.data) > sample_num:
+            self.data = self.data[:sample_num]
+        print(f"sampled retain data size: {len(self.data)}")
+        self.tokenizer = tokenizer
+        self.max_length = max_length
+        self.model_configs = get_model_identifiers_from_yaml(model_family)
+        self.model_configs["question_start_tag"] = ""
+        self.model_configs["question_end_tag"] = ""
+        self.model_configs["answer_tag"] = ""
+    
+    def __len__(self):
+        return len(self.data)
+
+    def __getitem__(self, idx):
+        question = ""
+        answers = self.data[idx]
+        # indices = self.data[idx]["index"]
+        if isinstance(answers, str):
+            answers = [answers]
+
+        pad_input_ids_list = []
+        label_list = []
+        pad_attention_mask_list = []
+
+        for answer in answers:
+            converted_data = convert_raw_data_to_model_format(
+                self.tokenizer, self.max_length, question, answer, self.model_configs
+            )
+            pad_input_ids_list.append(converted_data[0])
+            label_list.append(converted_data[1])
+            pad_attention_mask_list.append(converted_data[2])
+
+        return (
+            torch.stack(pad_input_ids_list).squeeze(),
+            torch.stack(label_list).squeeze(),
+            torch.stack(pad_attention_mask_list).squeeze(),
+            torch.tensor(idx),
+        )
+
+
+class TextDatasetWMDP(Dataset):
+    def __init__(
+        self,
+        data_path,
+        tokenizer,
+        model_family,
+        max_length=512,
+        min_length=50,
+        split=None,
+        num_samples=4000,
+        **kargs,
+    ):
+        super(TextDatasetWMDP, self).__init__()
+        self.tokenizer = tokenizer
+        self.max_length = max_length
+        self.min_length = min_length
+        forget_data = []
+        if split is not None:
+            assert(split in ["bio-forget-corpus", "cyber-forget-corpus"], "split must be bio-forget-corpus or cyber-forget-corpus")
+            for line in open(f"{data_path}/{split}.jsonl", "r"):
+                if "sampled-dataset" in split or "bio-forget-corpus" in split:
+                    raw_text = json.loads(line)["text"]
+                else:
+                    raw_text = line
+                forget_data.append(str(raw_text))
+        else:
+            for line in open(
+                f"{data_path}/bio-forget-corpus.jsonl", "r"
+            ):
+                raw_text = json.loads(line)["text"]
+                if len(raw_text) > self.min_length:
+                    forget_data.append(str(raw_text))
+            for line in open(
+                f"{data_path}/cyber-forget-corpus.jsonl", "r"
+            ):
+                if len(line) > self.min_length:
+                    forget_data.append(str(line))
+
+		# 随机抽样 3000 到 4000 条数据
+        # num_samples = torch.randint(3000, 4001, (1,)).item()
+        sampler = RandomSampler(forget_data, num_samples=num_samples, replacement=False)
+        self.data = [forget_data[i] for i in sampler]
+        print(f"forget data size: {len(self.data)}")	
+
+
+        self.model_configs = get_model_identifiers_from_yaml(model_family)
+        self.model_configs["question_start_tag"] = ""
+        self.model_configs["question_end_tag"] = ""
+        self.model_configs["answer_tag"] = ""
+    
+    def __len__(self):
+        return len(self.data)
+
+    def __getitem__(self, idx):
+        question = ""
+        answers = self.data[idx]
+        # indices = self.data[idx]["index"]
+        if isinstance(answers, str):
+            answers = [answers]
+
+        pad_input_ids_list = []
+        label_list = []
+        pad_attention_mask_list = []
+
+        for answer in answers:
+            converted_data = convert_raw_data_to_model_format(
+                self.tokenizer, self.max_length, question, answer, self.model_configs
+            )
+            pad_input_ids_list.append(converted_data[0])
+            label_list.append(converted_data[1])
+            pad_attention_mask_list.append(converted_data[2])
+
+        return (
+            torch.stack(pad_input_ids_list).squeeze(),
+            torch.stack(label_list).squeeze(),
+            torch.stack(pad_attention_mask_list).squeeze(),
+            torch.tensor(idx),
+        )
+
+
 
 class TextDatasetQIDK(Dataset):
     def __init__(
@@ -382,6 +456,7 @@ class TextDatasetQIDK(Dataset):
         split=None,
         question_key="question",
         answer_key="answer",
+        **kargs,
     ):
         super(TextDatasetQIDK, self).__init__()
         self.tokenizer = tokenizer

@@ -30,6 +30,7 @@ def apply_AlphaEdit_to_model(
     cache_c=None,
     cache_k=None,
     P=None,
+    use_cache=True,
 ) -> Dict[str, Tuple[torch.Tensor]]:
     """
     Executes the MEMIT update algorithm for the specified update at the specified layer
@@ -120,6 +121,8 @@ def apply_AlphaEdit_to_model(
         )[
             1
         ]  # W * K1  z_layer output [total_seq_length, out_dim]
+        if cfg.forget_loss == "edit_u": # ga
+            zs = -zs
         targets = (zs - cur_zs).T  # R = V1 - W * K1 [out_dim, total_seq_length, ]
         print("z error", torch.linalg.norm(targets, dim=0).mean())
 
@@ -128,7 +131,7 @@ def apply_AlphaEdit_to_model(
             repeat_factor, dim=1
         )  # 沿着第二维（dim=1）对 targets 张量进行重复扩展，使 targets 张量的第二维大小与 layer_ks 张量的第二维大小相匹配。
         resid = targets / (len(hparams.layers) - i)  # Distribute residual across layers
-        if cfg.forget_loss == "edit":  # use null space projection
+        if cfg.forget_loss in ["edit_t", "edit_u"]:  # use null space projection
             upd_matrix = torch.linalg.solve(
                 P[i, :, :].cuda() @ (layer_ks @ layer_ks.T + cache_c[i, :, :].cuda())
                 + hparams.L2 * torch.eye(layer_ks.shape[0], dtype=torch.float, device="cuda"),
@@ -146,6 +149,7 @@ def apply_AlphaEdit_to_model(
             )
             upd_matrix = resid @ upd_matrix.T
         elif cfg.forget_loss == "edit_max":
+            # - forget loss =  -||WK-V|| + ||\Delta P||
             upd_matrix = torch.linalg.solve(
                 P[i, :, :].cuda() @ (-layer_ks @ layer_ks.T + cache_c[i, :, :].cuda())
                 + hparams.L2 * torch.eye(layer_ks.shape[0], dtype=torch.float, device="cuda"),
@@ -166,10 +170,17 @@ def apply_AlphaEdit_to_model(
             x.cpu()
             del x
         torch.cuda.empty_cache()
-
-    for i, layer in enumerate(hparams.layers):
-        layer_ks = compute_ks(model, tok, requests, hparams, layer, None).T  # [in_dim, total_seq_length]
-        cache_c[i, :, :] += layer_ks.cpu() @ layer_ks.cpu().T
+    if use_cache:
+        for i, layer in enumerate(hparams.layers):
+            print(f"Saving cache for layer: {layer} ({i})")
+            layer_ks = compute_ks(model, tok, requests, hparams, layer, None).T  # [in_dim, total_seq_length]
+            # 随机采样部分列
+            sample_size = 500
+            total_seq_length = layer_ks.size(1)
+            sample_indices = torch.randperm(total_seq_length)[:min(sample_size, total_seq_length)]
+            sampled_layer_ks = layer_ks[:, sample_indices]
+            cache_c[i, :, :] += sampled_layer_ks.cpu() @ sampled_layer_ks.cpu().T
+            # cache_c[i, :, :] += layer_ks.cpu() @ layer_ks.cpu().T
 
     print(f"Deltas successfully computed for {list(weights.keys())}")
     return model, cache_c

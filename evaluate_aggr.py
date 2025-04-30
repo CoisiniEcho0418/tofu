@@ -1,6 +1,6 @@
 import sys
 import os
-
+os.environ['HF_ENDPOINT'] = 'https://hf-mirror.com'
 sys.path.append("/home/wxy/wxy_workspace/LLM_unlearn/tofu-main")
 sys.path.append("/home/wxy/wxy_workspace/LLM_unlearn/tofu-main/src")
 
@@ -23,20 +23,28 @@ from src.utils import get_model_identifiers_from_yaml, get_model_utility, get_fo
 @hydra.main(
     version_base=None,
     config_path="/home/wxy/wxy_workspace/LLM_unlearn/tofu-main/config/eval",
-    config_name="eval_everything_llama",
+    config_name="eval_everything_phi",
 )
 def main(cfg):
     root_dir = "/home/wxy/wxy_workspace/LLM_unlearn/tofu-main"
-    # TODO:  换成读配置文件而不是写死（跑通再改），注意下面的cfg.model_path也是写死的
+    model_root_dir="/root/autodl-tmp"  # 模型路径
+    # TODO:  
     task = "forget01"
-    method_name = "grad_ascent"  # edit_max, grad_ascent, grad_diff, idk, dpo
+    method_name = "RMU"  # ["edit_max", "grad_ascent", "grad_diff", "idk", "npo", "dpo", "ME", "FLAT-TV", "RMU"]
+    model_path_for_rmu = "/root/autodl-tmp/tofu_result/phi/RMU_0.0001_forget01_layer7_alpha[100.0, 100.0]_coeff_[20.0, 20.0]"
+    lr = 1e-04
+    num_epochs = 10
+    weight_decay = 0.01
+    unlearn_dir_name = "tofu_result"
     if cfg.model_family == "phi":
         retain_file_name = "ft_epoch5_lr2e-05_phi_retain" + str(100 - int(task[-2:])).zfill(2) + "_wd0.01"
     elif cfg.model_family == "llama2-7b":
         retain_file_name = "ft_epoch5_lr1e-05_llama2-7b_retain" + str(100 - int(task[-2:])).zfill(2) + "_wd0.01"
     # retain_file_name = "ft_epoch5_lr2e-05_phi_retain" + str(100 - int(task[-2:])).zfill(2) + "_wd0.01"
-    unlearn_dir_name = "tofu_result"
-    unlearn_file_name = "edit_max_1e-05_forget01_1_wd0.01_bs40"  # "locuslab_tofu_ft_phi/forget05_perturbed"
+    # unlearn_file_name = "grad_ascent_1e-05_forget01_5_wd0.01"
+    unlearn_file_name = f"{method_name}_{lr}_{task}_{num_epochs}_wd{weight_decay}"
+    # unlearn_file_name = "models--locuslab--tofu_ft_llama2-7b/snapshots/8fa500e8f345f1dd9cfe95bb4689878c944c9cbd"  # eval originial model
+    # "models--locuslab--tofu_ft_llama2-7b/snapshots/8fa500e8f345f1dd9cfe95bb4689878c944c9cbd" # eval originial model
 
     cfg.split = f"{task}_perturbed"
 
@@ -51,16 +59,19 @@ def main(cfg):
         == len(cfg.perturbed_answer_key)
     ), "data_path, split, eval_task, question_key, and answer_key must be the same length"
 
-	# TODO: 给save_dir加llama的if判断（但是目前缺少路径信息）
-    cfg.model_path = f"{root_dir}/{unlearn_dir_name}/${cfg.model_family}/{unlearn_file_name}"
-    cfg.save_dir = (
-        (f"{root_dir}/{unlearn_dir_name}/${cfg.model_family}/{unlearn_file_name}/eval_results/ds_size{cfg.ds_size}")
-        if "locuslab_tofu_ft_phi" not in cfg.model_path
-        else f"{root_dir}/{unlearn_dir_name}/locuslab_tofu_ft_phi/{cfg.split}/eval_results/ds_size{cfg.ds_size}"
-    )
+    cfg.model_path = f"{model_root_dir}/{unlearn_dir_name}/{cfg.model_family}/{unlearn_file_name}"
+    # print("load eval model from:", cfg.model_path)
+    if method_name == "RMU":
+        cfg.save_dir = f"{root_dir}/{unlearn_dir_name}/{cfg.model_family}/{os.path.basename(model_path_for_rmu)}/ds_size{cfg.ds_size}"
+    elif "locuslab--tofu_ft_llama2-7b" in cfg.model_path:
+        cfg.save_dir = f"{root_dir}/{unlearn_dir_name}/{cfg.model_family}/locuslab_tofu_ft_llama2-7b/{cfg.split}/ds_size{cfg.ds_size}"
+    elif "locuslab--tofu_ft_phi" in cfg.model_path:
+        cfg.save_dir = f"{root_dir}/{unlearn_dir_name}/{cfg.model_family}/locuslab_tofu_ft_phi/{cfg.split}/ds_size{cfg.ds_size}"
+    else:
+        cfg.save_dir = f"{root_dir}/{unlearn_dir_name}/{cfg.model_family}/{unlearn_file_name}/ds_size{cfg.ds_size}"
 
     Path(cfg.save_dir).mkdir(parents=True, exist_ok=True)
-
+    print("save_dir:", cfg.save_dir)
     local_rank = int(os.environ.get("LOCAL_RANK", "0"))
     device_map = {"": local_rank}
 
@@ -86,15 +97,26 @@ def main(cfg):
                     device_map=device_map,
                 )
             else:
-                print(f"Loading checkpoint from {cfg.model_path}")
-                model = AutoModelForCausalLM.from_pretrained(
-                    cfg.model_path,
-                    config=config,
-                    use_flash_attention_2=model_cfg["flash_attention2"] == "true",
-                    torch_dtype=torch.bfloat16,
-                    trust_remote_code=True,
-                    device_map=device_map,
-                )
+                if method_name == "RMU":
+                    print(f"Loading checkpoint from {model_path_for_rmu}")
+                    model = AutoModelForCausalLM.from_pretrained(
+						model_path_for_rmu,
+						config=config,
+						use_flash_attention_2=model_cfg["flash_attention2"] == "true",
+						torch_dtype=torch.bfloat16,
+						trust_remote_code=True,
+						device_map=device_map,
+					)
+                else:
+                    print(f"Loading checkpoint from {cfg.model_path}")
+                    model = AutoModelForCausalLM.from_pretrained(
+						cfg.model_path,
+						config=config,
+						use_flash_attention_2=model_cfg["flash_attention2"] == "true",
+						torch_dtype=torch.bfloat16,
+						trust_remote_code=True,
+						device_map=device_map,
+					)
         except Exception as e:
             print(e)
             continue
@@ -162,7 +184,7 @@ def main(cfg):
     # =============================== aggregate ===============================
 
     retain_result = f"{root_dir}/data/{retain_file_name}/eval_results/ds_size300/eval_log_aggregated.json"
-    aggr_save_file = f"{root_dir}/{unlearn_dir_name}/${cfg.model_family}/{unlearn_file_name}/aggr_result.csv"
+    aggr_save_file = f"{cfg.save_dir}/aggr_result.csv"
 
     retain_result = json.load(open(retain_result))
 
@@ -172,7 +194,10 @@ def main(cfg):
 
     model_utility["Method"] = method_name
     model_utility["Task"] = task
-    model_utility["Comment"] = unlearn_file_name
+    if method_name == "RMU":
+        model_utility["Comment"] = os.path.basename(model_path_for_rmu)
+    else:
+        model_utility["Comment"] = unlearn_file_name
     # dump the model utility to a temp.csv
     with open(aggr_save_file, "w") as f:  # You will need 'wb' mode in Python 2.x
         w = csv.DictWriter(f, model_utility.keys())

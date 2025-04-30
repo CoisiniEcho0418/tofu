@@ -1,7 +1,0 @@
-path_to_aggregated_retain_result: /home/wxy/wxy_workspace/LLM_unlearn/tofu-main/result/grad_ascent_1e-05_forget01_5/eval_results/ds_size300/eval_log_aggregated.json
-
-retain_result: ${path_to_aggregated_retain_result}
-ckpt_result: ${path_to_aggregated_retain_result}
-method_name: grad_ascent
-task: forget01
-save_file: /home/wxy/wxy_workspace/LLM_unlearn/tofu-main/result/grad_ascent_1e-05_forget01_5/aggr_result.csv
