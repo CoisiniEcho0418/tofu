@@ -89,11 +89,11 @@ def chunks(arr, n):
 )
 def main(cfg):
     # TODO:
-    cfg.batch_size = 200
+    cfg.batch_size = 400
     cfg.num_epochs = 1
     num_samples = 400
     cfg.split = "forget05" if "tofu" in cfg.data_name else cfg.split  #
-    retain_split = "retain" + str(100 - int(cfg.split[-2:])).zfill(2) if "tofu" in cfg.data_name else None
+    retain_split = "retain" + str(100 - int(cfg.split[-2:])).zfill(2) if "tofu" in cfg.data_name else cfg.split
     cfg.forget_loss = "edit_u"  # ["edit_t", "edit_u", "edit_max", "edit_k0"(memit)]
     
     if cfg.forget_loss == "edit_t":
@@ -246,7 +246,7 @@ def main(cfg):
             cache_c=cache_c, 
             cache_k=cache_k0,
             P=P,
-            use_cache=False# if len(torch_format_dataset)/num_edits <= 1 else True
+            use_cache=False if len(torch_format_dataset)/num_edits <= 1 else True
         )
         cnt += 1
     # =============================== save result ===============================

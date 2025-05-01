@@ -104,7 +104,7 @@ def get_params(model, layer_ids, param_ids):
 @hydra.main(
     version_base=None,
     config_path="/home/wxy/wxy_workspace/LLM_unlearn/tofu-main/config/forget",
-    config_name="forget_phi_wmdp",
+    config_name="forget_zephyr_wmdp",
 )
 def main(cfg):
     # TODO:

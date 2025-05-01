@@ -23,7 +23,7 @@ from src.utils import get_model_identifiers_from_yaml, get_model_utility, get_fo
 @hydra.main(
     version_base=None,
     config_path="/home/wxy/wxy_workspace/LLM_unlearn/tofu-main/config/eval",
-    config_name="eval_everything_phi",
+    config_name="eval_everything_llama",
 )
 def main(cfg):
     root_dir = "/home/wxy/wxy_workspace/LLM_unlearn/tofu-main"
@@ -31,9 +31,9 @@ def main(cfg):
     # TODO:  
     task = "forget01"
     method_name = "RMU"  # ["edit_max", "grad_ascent", "grad_diff", "idk", "npo", "dpo", "ME", "FLAT-TV", "RMU"]
-    model_path_for_rmu = "/root/autodl-tmp/tofu_result/phi/RMU_0.0001_forget01_layer7_alpha[100.0, 100.0]_coeff_[20.0, 20.0]"
-    lr = 1e-04
-    num_epochs = 10
+    model_path_for_rmu = "/root/autodl-tmp/tofu_result/llama2-7b/RMU_5e-05_None_layer7_alpha[100.0, 100.0]_coeff_[20.0, 20.0]"
+    lr = 5e-05
+    num_epochs = 1
     weight_decay = 0.01
     unlearn_dir_name = "tofu_result"
     if cfg.model_family == "phi":
@@ -104,7 +104,7 @@ def main(cfg):
 						config=config,
 						use_flash_attention_2=model_cfg["flash_attention2"] == "true",
 						torch_dtype=torch.bfloat16,
-						trust_remote_code=True,
+						# trust_remote_code=True,
 						device_map=device_map,
 					)
                 else:
@@ -124,6 +124,7 @@ def main(cfg):
             break
     else:
         print("Error: could not load model")
+    # print(model)
     model = model.eval()
     # =============================== start eval ===============================
     aggregated_eval_logs = {}

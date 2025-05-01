@@ -383,7 +383,7 @@ class TextDatasetWMDP(Dataset):
         self.min_length = min_length
         forget_data = []
         if split is not None:
-            assert(split in ["bio-forget-corpus", "cyber-forget-corpus"], "split must be bio-forget-corpus or cyber-forget-corpus")
+            # assert(split in ["bio-forget-corpus", "cyber-forget-corpus"], "split must be bio-forget-corpus or cyber-forget-corpus")
             for line in open(f"{data_path}/{split}.jsonl", "r"):
                 if "sampled-dataset" in split or "bio-forget-corpus" in split:
                     raw_text = json.loads(line)["text"]

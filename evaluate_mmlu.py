@@ -182,10 +182,9 @@ def main(args):
         torch_dtype=torch.float16,
         load_in_8bit=False,
         low_cpu_mem_usage=True,
-        device_map="auto",
-        trust_remote_code=True
+        device_map="auto"
     )
-    tokenizer = AutoTokenizer.from_pretrained(args.model, trust_remote_code=True)
+    tokenizer = AutoTokenizer.from_pretrained(args.model)
     model.eval()
     if args.subjects is not None:
         subjects=args.subjects
@@ -275,6 +274,7 @@ def main(args):
     results["cost_time"] = end_time - start_time
     with open(results_file, "w") as f:
         f.write(json.dumps(results, indent=4))
+    print("results saved to {}".format(results_file))
 
 
 if __name__ == "__main__":
@@ -301,7 +301,7 @@ if __name__ == "__main__":
     
     args = parser.parse_args()
 
-    args.model = "/root/autodl-tmp/wmdp_result/zephyr-7b/grad_diff_1e-05_sampled-dataset_1_wd0.01"
+    args.model = "/root/autodl-tmp/wmdp_result/phi/RMU_5e-05_None_layer7_alpha_1200"
     args.model_name = "zephyr-7b-beta"
     # args.model_type="microsoft/phi-1_5"
     main(args)
